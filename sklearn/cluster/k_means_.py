@@ -1430,6 +1430,9 @@ class MiniBatchKMeans(KMeans):
                       % (n_jobs, n_init, self.init))
 
             # Uses more memory, but should be faster
+            # CANT DO THIS BECAUSE old_center_buffer IS MODIFIED
+            # INPLACE IN SEVERAL CALLED FUNCTIONS INCLUDING
+            # CYTHON _mini_batch_step FUNC
             init_results = Parallel(n_jobs=n_jobs, verbose=self.verbose)(
                 delayed(_mini_batch_init)(self.n_clusters, self.init,
                                           self.init_size, X, x_squared_norms,
