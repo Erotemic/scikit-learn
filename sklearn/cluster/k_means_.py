@@ -31,6 +31,7 @@ from ..utils.validation import FLOAT_DTYPES
 from ..utils.random import choice
 from ..externals.joblib import Parallel
 from ..externals.joblib import delayed
+from ..externals.joblib import cpu_count
 from ..externals.six import string_types
 
 from . import _k_means
@@ -979,6 +980,35 @@ class KMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         return -_labels_inertia(X, x_squared_norms, self.cluster_centers_)[1]
 
 
+def _mini_batch_init(n_clusters, init, init_size, X, x_squared_norms, X_valid,
+                     x_squared_norms_valid, validation_indices,
+                     old_center_buffer, verbose, random_state):
+    counts = np.zeros(n_clusters, dtype=np.int32)
+
+    # TODO: once the `k_means` function works with sparse input we
+    # should refactor the following init to use it instead.
+
+    # Initialize the centers using only a fraction of the data as we
+    # expect n_samples to be very large when using MiniBatchKMeans
+    cluster_centers = _init_centroids(
+        X, n_clusters, init,
+        random_state=random_state,
+        x_squared_norms=x_squared_norms,
+        init_size=init_size)
+
+    # Compute the label assignment on the init dataset
+    batch_inertia, centers_squared_diff = _mini_batch_step(
+        X_valid, x_squared_norms[validation_indices],
+        cluster_centers, counts, old_center_buffer, False,
+        distances=None, verbose=verbose)
+
+    # Keep only the best cluster centers across independent inits on
+    # the common validation set
+    _, inertia = _labels_inertia(X_valid, x_squared_norms_valid,
+                                 cluster_centers)
+    return inertia, cluster_centers, counts
+
+
 def _mini_batch_step(X, x_squared_norms, centers, counts,
                      old_center_buffer, compute_squared_diff,
                      distances, random_reassign=False,
@@ -1258,6 +1288,16 @@ class MiniBatchKMeans(KMeans):
         model will take longer to converge, but should converge in a
         better clustering.
 
+    n_jobs : int
+        The number of jobs to use for the computation. This works by computing
+        each of the n_init runs in parallel. The number of jobs can be at most
+        (n_init) the number of random initializations.
+
+        If -1 the maximum number of CPUs are used. If 1 is given, no parallel
+        computing code is used at all, which is useful for debugging. For
+        n_jobs below -1, min(n_cpus + 1 + n_jobs, n_init) are used. Thus for
+        n_jobs = -2 and large values of n_init, all CPUs but one are used.
+
     verbose : boolean, optional
         Verbosity mode.
 
@@ -1293,7 +1333,8 @@ class MiniBatchKMeans(KMeans):
     def __init__(self, n_clusters=8, init='k-means++', max_iter=100,
                  batch_size=100, verbose=0, compute_labels=True,
                  random_state=None, tol=0.0, max_no_improvement=10,
-                 init_size=None, n_init=3, reassignment_ratio=0.01):
+                 init_size=None, n_init=3, reassignment_ratio=0.01,
+                 n_jobs=1):
 
         super(MiniBatchKMeans, self).__init__(
             n_clusters=n_clusters, init=init, max_iter=max_iter,
@@ -1304,6 +1345,7 @@ class MiniBatchKMeans(KMeans):
         self.compute_labels = compute_labels
         self.init_size = init_size
         self.reassignment_ratio = reassignment_ratio
+        self.n_jobs = n_jobs
 
     def fit(self, X, y=None):
         """Compute the centroids on X by chunking it into mini-batches.
@@ -1334,6 +1376,20 @@ class MiniBatchKMeans(KMeans):
 
         x_squared_norms = row_norms(X, squared=True)
 
+        n_jobs = self.n_jobs
+        if n_jobs < 0:
+            n_jobs = cpu_count() + n_jobs + 1
+            n_jobs = max(1, n_jobs)
+            n_jobs = min(n_init, n_jobs)
+
+        if n_jobs > self.n_init:
+            warnings.warn(
+                'Number of jobs excedes number of initializations. '
+                'MiniBatchKMeans can only run initialization in parallel. '
+                'n_jobs=%r should not be greater than n_init=%r. '
+                % (n_jobs, self.n_init), RuntimeWarning, stacklevel=2)
+            n_jobs = n_init
+
         if self.tol > 0.0:
             tol = _tolerance(X, self.tol)
 
@@ -1362,42 +1418,65 @@ class MiniBatchKMeans(KMeans):
         X_valid = X[validation_indices]
         x_squared_norms_valid = x_squared_norms[validation_indices]
 
-        # perform several inits with random sub-sets
-        best_inertia = None
-        for init_idx in range(n_init):
+        # Ensure the random state is the same between parallel and serial
+        # inits. The same random_state should result in the same clusters.
+        ORIG_MODE = 1
+        if not ORIG_MODE or n_jobs > 1:
+            seeds = random_state.randint(np.iinfo(np.int32).max, size=n_init)
+
+        if n_jobs > 1:
             if self.verbose:
-                print("Init %d/%d with method: %s"
-                      % (init_idx + 1, n_init, self.init))
-            counts = np.zeros(self.n_clusters, dtype=np.int32)
+                print("Init %d times using %d jobs with method: %s"
+                      % (n_jobs, n_init, self.init))
 
-            # TODO: once the `k_means` function works with sparse input we
-            # should refactor the following init to use it instead.
+            # Uses more memory, but should be faster
+            init_results = Parallel(n_jobs=n_jobs, verbose=self.verbose)(
+                delayed(_mini_batch_init)(self.n_clusters, self.init,
+                                          self.init_size, X, x_squared_norms,
+                                          X_valid, x_squared_norms_valid,
+                                          validation_indices,
+                                          old_center_buffer,
+                                          verbose=self.verbose,
+                                          random_state=seed)
+                for seed in seeds)
 
-            # Initialize the centers using only a fraction of the data as we
-            # expect n_samples to be very large when using MiniBatchKMeans
-            cluster_centers = _init_centroids(
-                X, self.n_clusters, self.init,
-                random_state=random_state,
-                x_squared_norms=x_squared_norms,
-                init_size=init_size)
+            best_inertia = None
+            for init_idx, result in enumerate(init_results):
+                (inertia, cluster_centers, counts) = result
+                if self.verbose:
+                    print("Inertia for init %d/%d: %f"
+                          % (init_idx + 1, n_init, inertia))
+                if best_inertia is None or inertia < best_inertia:
+                    self.cluster_centers_ = cluster_centers
+                    self.counts_ = counts
+                    best_inertia = inertia
+        else:
+            # perform several inits with random sub-sets
+            best_inertia = None
+            for init_idx in range(n_init):
+                if self.verbose:
+                    print("Init %d/%d with method: %s"
+                          % (init_idx + 1, n_init, self.init))
 
-            # Compute the label assignment on the init dataset
-            batch_inertia, centers_squared_diff = _mini_batch_step(
-                X_valid, x_squared_norms[validation_indices],
-                cluster_centers, counts, old_center_buffer, False,
-                distances=None, verbose=self.verbose)
+                if ORIG_MODE:
+                    seed = random_state
+                else:
+                    seed = seeds[init_idx]
 
-            # Keep only the best cluster centers across independent inits on
-            # the common validation set
-            _, inertia = _labels_inertia(X_valid, x_squared_norms_valid,
-                                         cluster_centers)
-            if self.verbose:
-                print("Inertia for init %d/%d: %f"
-                      % (init_idx + 1, n_init, inertia))
-            if best_inertia is None or inertia < best_inertia:
-                self.cluster_centers_ = cluster_centers
-                self.counts_ = counts
-                best_inertia = inertia
+                result = _mini_batch_init(
+                    self.n_clusters, self.init, self.init_size, X,
+                    x_squared_norms, X_valid, x_squared_norms_valid,
+                    validation_indices, old_center_buffer,
+                    verbose=self.verbose, random_state=seed)
+                inertia, cluster_centers, counts = result
+
+                if self.verbose:
+                    print("Inertia for init %d/%d: %f"
+                          % (init_idx + 1, n_init, inertia))
+                if best_inertia is None or inertia < best_inertia:
+                    self.cluster_centers_ = cluster_centers
+                    self.counts_ = counts
+                    best_inertia = inertia
 
         # Empty context to be used inplace by the convergence check routine
         convergence_context = {}

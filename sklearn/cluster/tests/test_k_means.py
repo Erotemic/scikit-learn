@@ -369,6 +369,51 @@ def test_minibatch_k_means_perfect_init_sparse_csr():
     _check_fitted_model(mb_k_means)
 
 
+@if_safe_multiprocessing_with_blas
+def test_minibatch_k_means_random_2_jobs():
+    # if sys.version_info[:2] < (3, 4):
+    #     raise SkipTest(
+    #         "Possible multi-process bug with some BLAS under Python < 3.4")
+
+    # Ensure that using more than one job does not change results.
+    mbkm_ser = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                               init='random', n_init=2, n_jobs=1).fit(X)
+    mbkm_par = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                               init='random', n_init=2, n_jobs=2).fit(X)
+    assert np.all(mbkm_par.cluster_centers_ == mbkm_ser.cluster_centers_)
+
+
+@if_safe_multiprocessing_with_blas
+def test_minibatch_k_means_kmeanspp_2_jobs():
+    # if sys.version_info[:2] < (3, 4):
+    #     raise SkipTest(
+    #         "Possible multi-process bug with some BLAS under Python < 3.4")
+
+    # Check different initialization method
+    mbkm_ser = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                               init='k-means++', n_init=2, n_jobs=1).fit(X)
+    mbkm_par = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                               init='k-means++', n_init=2, n_jobs=2).fit(X)
+    assert np.all(mbkm_par.cluster_centers_ == mbkm_ser.cluster_centers_)
+
+
+def test_minibatch_k_means_job_warning():
+    mb_k_means = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                                 n_init=2, n_jobs=3)
+    assert_warns(RuntimeWarning, mb_k_means.fit, X)
+    _check_fitted_model(mb_k_means)
+
+    mb_k_means = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                                 n_init=2, n_jobs=-1)
+    mb_k_means.fit(X)
+    _check_fitted_model(mb_k_means)
+
+    mb_k_means = MiniBatchKMeans(n_clusters=n_clusters, random_state=42,
+                                 n_init=2, n_jobs=0)
+    mb_k_means.fit(X)
+    _check_fitted_model(mb_k_means)
+
+
 def test_minibatch_sensible_reassign_fit():
     # check if identical initial clusters are reassigned
     # also a regression test for when there are more desired reassignments than
@@ -502,7 +547,7 @@ def test_minibatch_default_init_size():
 
 def test_minibatch_tol():
     mb_k_means = MiniBatchKMeans(n_clusters=n_clusters, batch_size=10,
-                                 random_state=42, tol=.01).fit(X)
+                                 verbose=2, random_state=42, tol=.01).fit(X)
     _check_fitted_model(mb_k_means)
 
 
