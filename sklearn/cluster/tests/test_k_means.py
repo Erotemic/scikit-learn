@@ -44,6 +44,14 @@ X_csr = sp.csr_matrix(X)
 
 
 def test_elkan_results():
+    """
+    CommandLine:
+        python -m sklearn.cluster.tests.test_k_means test_elkan_results
+
+    Example:
+        >>> from sklearn.cluster.tests.test_k_means import *
+        >>> test_elkan_results()
+    """
     rnd = np.random.RandomState(0)
     X_normal = rnd.normal(size=(50, 10))
     X_blobs, _ = make_blobs(random_state=0)
@@ -770,6 +778,14 @@ def test_max_iter_error():
 
 
 def test_float_precision():
+    """
+    CommandLine:
+        python -m sklearn.cluster.tests.test_k_means test_float_precision
+
+    Example:
+        >>> from sklearn.cluster.tests.test_k_means import *  # NOQA
+        >>> result = test_float_precision()
+    """
     km = KMeans(n_init=1, random_state=30)
     mb_km = MiniBatchKMeans(n_init=1, random_state=30)
 
@@ -824,3 +840,15 @@ def test_KMeans_init_centers():
         km.fit(X_test)
         assert_equal(False,
                      np.may_share_memory(km.cluster_centers_, init_centers))
+
+
+if __name__ == '__main__':
+    r"""
+    CommandLine:
+        python -m sklearn.cluster.tests.test_k_means
+        python -m sklearn.cluster.tests.test_k_means --allexamples
+    """
+    import multiprocessing
+    multiprocessing.freeze_support()  # for win32
+    import utool as ut  # NOQA
+    ut.doctest_funcs()
