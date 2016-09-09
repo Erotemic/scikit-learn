@@ -33,7 +33,9 @@ from ..utils.random import choice
 from ..externals.joblib import Parallel
 from ..externals.joblib import delayed
 from ..externals.six import string_types
+from ..externals.six import next
 from ..externals.six.moves import range
+from ..externals.progiter import ProgIter
 
 from . import _k_means
 from ._k_means_elkan import k_means_elkan
@@ -42,6 +44,10 @@ from ._k_means_elkan import k_means_elkan
 ###############################################################################
 # Initialization heuristic
 
+import utool as ut
+
+
+@ut.profile
 def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
             check_inputs=True, verbose=True):
     """Init n_clusters seeds according to k-means++
@@ -68,7 +74,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         on the number of seeds (2+log(k)); this is the default.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are finite and floats.
+        Whether to check if inputs are are finite and floats.
 
     verbose : boolean, optional
         Verbosity mode.
@@ -82,6 +88,10 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     Version ported from http://www.stanford.edu/~darthur/kMeansppTest.zip,
     which is the implementation used in the aforementioned paper.
+
+
+    TODO: Scalable Kmeans ++
+    http://theory.stanford.edu/~sergei/papers/vldb12-kmpar.pdf
     """
     n_samples, n_features = X.shape
 
@@ -96,18 +106,39 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     # Do type checks before the critical loop
     if check_inputs:
-        X = check_array(X, accept_sparse='csr', dtype=FLOAT_DTYPES,
+        X = check_array(X, accept_sparse='csr', dtype=[np.float64, np.float32],
                         warn_on_dtype=False, estimator='kmeans++',
                         force_all_finite=True)
         x_squared_norms = check_array(np.atleast_2d(x_squared_norms),
                                       dtype=FLOAT_DTYPES, warn_on_dtype=False,
                                       estimator='kmeans++',
                                       force_all_finite=True)
+    else:
+        x_squared_norms = np.atleast_2d(x_squared_norms)
 
     is_sparse = sp.issparse(X)
 
+    # Precompute and prealloc loop variables
+    # new_dist_sq = np.empty((1, X.shape[0]), dtype=X.dtype)
+    closest_dist_sq = np.empty((1, X.shape[0]), dtype=X.dtype)
+    distance_to_candidates = np.empty((n_local_trials, X.shape[0]),
+                                      dtype=X.dtype)
+
     # Preallocate space for the cluster centers
     centers = np.empty((n_clusters, n_features), dtype=X.dtype)
+    # Allocate flags denoting if an input sample was chosen as a center
+    # is_used = np.zeros(n_samples, dtype=np.bool)
+
+    if verbose:
+        print('[kmeans++] n_local_trials = %r' % (n_local_trials,))
+        print('[kmeans++] n_clusters = %r' % (n_clusters,))
+        print('[kmeans++] n_features = %r' % (n_features,))
+        print('[kmeans++] X.shape[0] = %r' % (X.shape[0],))
+        print('[kmeans++] X.dtype = %r' % (X.dtype,))
+
+    prog = ProgIter(label='kmeans++', verbose=verbose)
+    _iter = prog(range(n_clusters))
+    c = next(_iter)
 
     # Pick first center randomly
     c = 0
@@ -117,21 +148,27 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
     else:
         centers[c] = X[chosen_id]
 
-    # Initialize list of closest distances and calculate current potential
+    X_cand = centers[[c]]
+    x_cand_squared_norms = x_squared_norms.T[[c]]
+
+    # Initialize list of closest distances
     closest_dist_sq = euclidean_distances(
-        centers[c, np.newaxis], X, Y_norm_squared=x_squared_norms,
-        squared=True, check_inputs=False)
-    current_pot = closest_dist_sq.sum()
+        X_cand, X,
+        X_norm_squared=x_cand_squared_norms,
+        Y_norm_squared=x_squared_norms,
+        squared=True, check_inputs=False, out=closest_dist_sq)
+    # current_pot = closest_dist_sq.sum()
 
     # minimum positive float32 value
     # eps = np.finfo(np.float32).tiny
     eps = 1.1754944e-38
 
     # Pick the remaining n_clusters-1 points
-    for c in range(1, n_clusters):
+    for c in _iter:
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
         cumdist_sq = stable_cumsum(closest_dist_sq)
+        current_pot = cumdist_sq[-1]
         # Ensure that the new candidates have not been selected before
         # Initial sample is on the interval [0, 1).
         rand_vals = random_state.random_sample(n_local_trials)
@@ -144,19 +181,24 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         candidate_ids = np.searchsorted(cumdist_sq, rand_vals)
 
         # Compute distances to center candidates
+        X_cand = X[candidate_ids]
+        x_cand_squared_norms = x_squared_norms.T[candidate_ids]
         distance_to_candidates = euclidean_distances(
-            X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True,
-            check_inputs=False,
-        )
+            X_cand, X,
+            X_norm_squared=x_cand_squared_norms,
+            Y_norm_squared=x_squared_norms,
+            squared=True, check_inputs=False, out=distance_to_candidates)
 
-        # Decide which candidate is the best
         best_candidate = None
         best_pot = None
         best_dist_sq = None
         for trial in range(n_local_trials):
             # Compute potential when including center candidate
-            new_dist_sq = np.minimum(closest_dist_sq,
-                                     distance_to_candidates[trial])
+            trial_dist = distance_to_candidates[trial]
+            # new_dist_sq = np.minimum(closest_dist_sq, trial_dist,
+            # out=new_dist_sq)
+            # out causes a precision error
+            new_dist_sq = np.minimum(closest_dist_sq, trial_dist)
             new_pot = new_dist_sq.sum()
 
             # Store result if it is the best local trial so far
@@ -171,9 +213,8 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
             centers[c] = X[chosen_id].toarray()
         else:
             centers[c] = X[chosen_id]
-
-        current_pot = best_pot
-        closest_dist_sq = best_dist_sq
+        closest_dist_sq[:] = best_dist_sq
+        # current_pot = best_pot
 
     return centers
 
@@ -561,6 +602,10 @@ def _kmeans_single_lloyd(X, n_clusters, max_iter=300, init='k-means++',
     return best_labels, best_inertia, best_centers, i + 1
 
 
+# memtrack = ut.MemoryTracker()
+
+
+@ut.profile
 def _labels_inertia_precompute_dense(X, x_squared_norms, centers, distances):
     """Compute labels and inertia using a full distance matrix.
 
@@ -590,7 +635,6 @@ def _labels_inertia_precompute_dense(X, x_squared_norms, centers, distances):
 
     """
     n_samples = X.shape[0]
-
     # Breakup nearest neighbor distance computation into batches to prevent
     # memory blowup
     metric_kwargs = dict(squared=True, check_inputs=False)
@@ -598,13 +642,18 @@ def _labels_inertia_precompute_dense(X, x_squared_norms, centers, distances):
         X=X, Y=centers, metric='euclidean', metric_kwargs=metric_kwargs)
     # cython k-means code assumes int32 inputs
     labels = labels.astype(np.int32)
+
     if n_samples == distances.shape[0]:
         # distances will be changed in-place
         distances[:] = mindist
+
+    # memtrack.disabled = True
+
     inertia = mindist.sum()
     return labels, inertia
 
 
+@ut.profile
 def _labels_inertia(X, x_squared_norms, centers,
                     precompute_distances=True, distances=None):
     """E step of the K-means EM algorithm.
@@ -689,8 +738,8 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
         random subset of the data. This needs to be larger than k.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are finite and floats
-        if init is `kmeans++`.
+        Whether to check if inputs are are finite and floats if
+        init is `kmeans++`.
 
     verbose : int, default 0
         Verbosity mode.
@@ -712,6 +761,7 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
                 "Setting it to 3*k" % (init_size, k),
                 RuntimeWarning, stacklevel=2)
             init_size = 3 * k
+        # init_indices = random_state.randint(0, n_samples, init_size)
         init_indices = choice(n_samples, init_size, replace=False,
                               random_state=random_state)
         X = X[init_indices]
@@ -1024,11 +1074,12 @@ class KMeans(BaseEstimator, ClusterMixin, TransformerMixin):
         return -_labels_inertia(X, x_squared_norms, self.cluster_centers_)[1]
 
 
+@ut.profile
 def _mini_batch_step(X, x_squared_norms, centers, counts,
                      old_center_buffer, compute_squared_diff,
                      distances, random_reassign=False,
                      random_state=None, reassignment_ratio=.01,
-                     verbose=False):
+                     verbose=False, prog=None):
     """Incremental update of the centers for the Minibatch K-Means algorithm.
 
     Parameters
@@ -1104,6 +1155,8 @@ def _mini_batch_step(X, x_squared_norms, centers, counts,
             new_centers = choice(X.shape[0], replace=False, size=n_reassigns,
                                  random_state=random_state)
             if verbose:
+                if prog:
+                    prog.ensure_newline()
                 print("[MiniBatchKMeans] Reassigning %i cluster centers."
                       % n_reassigns)
 
@@ -1160,9 +1213,10 @@ def _mini_batch_step(X, x_squared_norms, centers, counts,
     return inertia, squared_diff
 
 
+@ut.profile
 def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
                             n_samples, centers_squared_diff, batch_inertia,
-                            context, verbose=0):
+                            context, verbose=0, prog=None):
     """Helper function to encapsulate the early stopping logic"""
     # Normalize inertia to be able to compare values when
     # batch_size changes
@@ -1187,16 +1241,16 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
     # Log progress to be able to monitor convergence
     if verbose:
         progress_msg = (
-            'Minibatch iteration %d/%d:'
-            ' mean batch inertia: %f, ewa inertia: %f ' % (
-                iteration_idx + 1, n_iter, batch_inertia,
-                ewa_inertia))
-        print(progress_msg)
+            'inertia: mean batch=%f, ewa=%f ' % (
+                batch_inertia, ewa_inertia))
+        prog.set_extra(progress_msg)
 
     # Early stopping based on absolute tolerance on squared change of
     # centers position (using EWA smoothing)
     if tol > 0.0 and ewa_diff <= tol:
         if verbose:
+            if prog:
+                prog.end()
             print('Converged (small centers change) at iteration %d/%d'
                   % (iteration_idx + 1, n_iter))
         return True
@@ -1213,6 +1267,9 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
     if (model.max_no_improvement is not None and
             no_improvement >= model.max_no_improvement):
         if verbose:
+            if prog:
+                prog.end()
+                # print('prog = %r' % (prog,))
             print('Converged (lack of improvement in inertia)'
                   ' at iteration %d/%d'
                   % (iteration_idx + 1, n_iter))
@@ -1221,6 +1278,7 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
     # update the convergence context to maintain state across successive calls:
     context['ewa_diff'] = ewa_diff
     context['ewa_inertia'] = ewa_inertia
+    context['batch_inertia'] = batch_inertia
     context['ewa_inertia_min'] = ewa_inertia_min
     context['no_improvement'] = no_improvement
     return False
@@ -1241,6 +1299,7 @@ class MiniBatchKMeans(KMeans):
     max_iter : int, optional
         Maximum number of iterations over the complete dataset before
         stopping independently of any early stopping criterion heuristics.
+        (actual number of iterations will be this times the number of batches)
 
     max_no_improvement : int, default: 10
         Control early stopping based on the consecutive number of mini
@@ -1350,6 +1409,7 @@ class MiniBatchKMeans(KMeans):
         self.init_size = init_size
         self.reassignment_ratio = reassignment_ratio
 
+    @ut.profile
     def fit(self, X, y=None):
         """Compute the centroids on X by chunking it into mini-batches.
 
@@ -1425,6 +1485,9 @@ class MiniBatchKMeans(KMeans):
 
             # Initialize the centers using only a fraction of the data as we
             # expect n_samples to be very large when using MiniBatchKMeans
+            # import utool
+            # utool.embed()
+
             cluster_centers = _init_centroids(
                 X, self.n_clusters, self.init,
                 random_state=random_state,
@@ -1436,6 +1499,9 @@ class MiniBatchKMeans(KMeans):
             if self.verbose:
                 print('Take one minibatch step on init candidate')
 
+            if hasattr(self.init, '__array__'):
+                if self.verbose:
+                    print('Taking one step using initialization dataset')
             # Compute the label assignment on the init dataset
             batch_inertia, centers_squared_diff = _mini_batch_step(
                 X_valid, x_squared_norms[validation_indices],
@@ -1467,7 +1533,10 @@ class MiniBatchKMeans(KMeans):
 
         # Perform the iterative optimization until the final convergence
         # criterion
-        for iteration_idx in range(n_iter):
+        if self.verbose:
+            print('Begining mini-batch iterations')
+        prog = ProgIter(label='minibatch', verbose=self.verbose)
+        for iteration_idx in prog(range(n_iter)):
             # Sample a minibatch from the full dataset
             minibatch_indices = choice(n_samples, batch_size,
                                        replace=False,
@@ -1487,13 +1556,13 @@ class MiniBatchKMeans(KMeans):
                                  % (10 + self.counts_.min()) == 0),
                 random_state=random_state,
                 reassignment_ratio=self.reassignment_ratio,
-                verbose=self.verbose)
+                verbose=self.verbose, prog=prog)
 
             # Monitor convergence and do early stopping if necessary
             if _mini_batch_convergence(
                     self, iteration_idx, n_iter, tol, n_samples,
                     centers_squared_diff, batch_inertia, convergence_context,
-                    verbose=self.verbose):
+                    verbose=self.verbose, prog=prog):
                 break
 
         self.n_iter_ = iteration_idx + 1
@@ -1503,6 +1572,7 @@ class MiniBatchKMeans(KMeans):
 
         return self
 
+    @ut.profile
     def _labels_inertia_minibatch(self, X):
         """Compute labels and inertia using mini batches.
 
@@ -1529,9 +1599,15 @@ class MiniBatchKMeans(KMeans):
         if batch_size > n_samples:
             batch_size = n_samples
         x_squared_norms = row_norms(X, squared=True)
-        slices = gen_batches(X.shape[0], batch_size)
-        results = [_labels_inertia(X[s], x_squared_norms[s],
-                                   self.cluster_centers_) for s in slices]
+        n_samples = X.shape[0]
+        slices = gen_batches(n_samples, batch_size)
+        total_batches = int(n_samples // batch_size)
+        prog = ProgIter(label='labels inertia', length=total_batches,
+                        verbose=self.verbose)
+        results = [
+            _labels_inertia(X[s], x_squared_norms[s], self.cluster_centers_)
+            for s in prog(slices)
+        ]
         labels, inertia = zip(*results)
         return np.hstack(labels), np.sum(inertia)
 

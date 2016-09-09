@@ -160,7 +160,7 @@ def check_paired_arrays(X, Y):
 
 # Pairwise distances
 def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
-                        X_norm_squared=None, check_inputs=True):
+                        X_norm_squared=None, check_inputs=True, out=None):
     """
     Considering the rows of X (and Y=X) as vectors, compute the
     distance matrix between each pair of vectors.
@@ -200,6 +200,9 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
 
     check_inputs : boolean (default=True)
         Whether to check if inputs are finite and floats.
+
+    out: ndarray, optional
+        Pre-allocated output
 
     Returns
     -------
@@ -249,7 +252,7 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
     else:
         YY = row_norms(Y, squared=True)[np.newaxis, :]
 
-    distances = safe_sparse_dot(X, Y.T, dense_output=True)
+    distances = safe_sparse_dot(X, Y.T, dense_output=True, out=out)
     distances *= -2
     distances += XX
     distances += YY
@@ -1156,7 +1159,8 @@ def _parallel_pairwise(X, Y, func, n_jobs, **kwds):
 def _pairwise_callable(X, Y, metric, **kwds):
     """Handle the callable case for pairwise_{distances,kernels}
     """
-    X, Y = check_pairwise_arrays(X, Y)
+    if kwds.get('check_inputs', True):
+        X, Y = check_pairwise_arrays(X, Y)
 
     if X is Y:
         # Only calculate metric for upper triangle
