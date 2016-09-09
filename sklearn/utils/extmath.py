@@ -132,7 +132,7 @@ def _have_blas_gemm():
 
 # Only use fast_dot for older NumPy; newer ones have tackled the speed issue.
 if np_version < (1, 7, 2) and _have_blas_gemm():
-    def fast_dot(A, B):
+    def fast_dot(A, B, out=None):
         """Compute fast dot products directly calling BLAS.
 
         This function calls BLAS directly while warranting Fortran contiguity.
@@ -174,7 +174,7 @@ def density(w, **kwargs):
     return d
 
 
-def safe_sparse_dot(a, b, dense_output=False):
+def safe_sparse_dot(a, b, dense_output=False, out=None):
     """Dot product that handle the sparse matrix case correctly
 
     Uses BLAS GEMM as replacement for numpy.dot where possible
@@ -186,7 +186,7 @@ def safe_sparse_dot(a, b, dense_output=False):
             ret = ret.toarray()
         return ret
     else:
-        return fast_dot(a, b)
+        return fast_dot(a, b, out=out)
 
 
 def randomized_range_finder(A, size, n_iter,

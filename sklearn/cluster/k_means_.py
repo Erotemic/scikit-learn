@@ -78,8 +78,6 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
     """
     n_samples, n_features = X.shape
 
-    centers = np.empty((n_clusters, n_features), dtype=X.dtype)
-
     assert x_squared_norms is not None, 'x_squared_norms None in _k_init'
 
     # Set the number of local seeding trials if none is given
@@ -88,7 +86,6 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
         # specific results for other than mentioning in the conclusion
         # that it helped.
         n_local_trials = 2 + int(np.log(n_clusters))
-
     if verbose:
         print('[kmeans++] n_local_trials = %r' % (n_local_trials,))
         print('[kmeans++] n_clusters = %r' % (n_clusters,))
@@ -102,6 +99,20 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
     from sklearn.externals.six import next
     next(_iter)
 
+    # Do type checks before the critical loop
+    X = as_float_array(X, copy=False)
+    X = check_array(X, accept_sparse='csr', dtype=None,
+                    warn_on_dtype=False, estimator='kmeans++',
+                    force_all_finite=True)
+
+    # Precompute and prealloc loop variables
+    is_sparse = sp.issparse(X)
+    new_dist_sq = np.empty((1, X.shape[0]))
+    closest_dist_sq = np.empty((1, X.shape[0]))
+    distance_to_candidates = np.empty((n_local_trials, X.shape[0]))
+    centers = np.empty((n_clusters, n_features), dtype=X.dtype)
+    #n_local_trials = 2
+
     # Pick first center randomly
     center_id = random_state.randint(n_samples)
     if sp.issparse(X):
@@ -112,7 +123,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
     # Initialize list of closest distances and calculate current potential
     closest_dist_sq = euclidean_distances(
         centers[0, np.newaxis], X, Y_norm_squared=x_squared_norms,
-        squared=True, force_all_finite=True)
+        squared=True, force_all_finite=False, out=closest_dist_sq)
     current_pot = closest_dist_sq.sum()
 
     # Pick the remaining n_clusters-1 points
@@ -121,22 +132,27 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
         rand_vals = random_state.random_sample(n_local_trials) * current_pot
-        candidate_ids = np.searchsorted(closest_dist_sq.cumsum(), rand_vals)
+        cum_closest_dist_sq = closest_dist_sq.cumsum()
+        candidate_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
+
+        # TODO: can we only compare to a subset of these values?
 
         # Compute distances to center candidates
+        X_cand = X[candidate_ids]
         distance_to_candidates = euclidean_distances(
-            X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True,
-            force_all_finite=False,
-        )
+            X_cand, X, Y_norm_squared=x_squared_norms, squared=True,
+            force_all_finite=False, out=distance_to_candidates)
+        #if c % 100 == 0:
+        #    import utool
+        #    utool.embed()
 
-        # Decide which candidate is the best
         best_candidate = None
         best_pot = None
         best_dist_sq = None
         for trial in range(n_local_trials):
             # Compute potential when including center candidate
-            new_dist_sq = np.minimum(closest_dist_sq,
-                                     distance_to_candidates[trial])
+            trial_dist = distance_to_candidates[trial]
+            new_dist_sq = np.minimum(closest_dist_sq, trial_dist, out=new_dist_sq)
             new_pot = new_dist_sq.sum()
 
             # Store result if it is the best local trial so far
@@ -146,12 +162,12 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
                 best_dist_sq = new_dist_sq
 
         # Permanently add best center candidate found in local tries
-        if sp.issparse(X):
+        if is_sparse:
             centers[c] = X[best_candidate].toarray()
         else:
             centers[c] = X[best_candidate]
         current_pot = best_pot
-        closest_dist_sq = best_dist_sq
+        closest_dist_sq[:] = best_dist_sq
 
     return centers
 
