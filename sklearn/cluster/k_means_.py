@@ -40,8 +40,12 @@ from ._k_means_elkan import k_means_elkan
 ###############################################################################
 # Initialization heuristic
 
+import utool as ut
+
+
+@ut.profile
 def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
-            check_inputs=True):
+            check_inputs=True, verbose=True):
     """Init n_clusters seeds according to k-means++
 
     Parameters
@@ -66,7 +70,10 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         on the number of seeds (2+log(k)); this is the default.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are finite and floats.
+        Whether to check if inputs are are finite and floats.
+
+    verbose : boolean, optional
+        Verbosity mode.
 
     Notes
     -----
@@ -77,6 +84,10 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     Version ported from http://www.stanford.edu/~darthur/kMeansppTest.zip,
     which is the implementation used in the aforementioned paper.
+
+
+    TODO: Scalable Kmeans ++
+    http://theory.stanford.edu/~sergei/papers/vldb12-kmpar.pdf
     """
     n_samples, n_features = X.shape
 
@@ -91,15 +102,38 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     # Do type checks before the critical loop
     if check_inputs:
-        X = check_array(X, accept_sparse='csr', dtype=FLOAT_DTYPES,
+        X = as_float_array(X, copy=False)
+        X = check_array(X, accept_sparse='csr', dtype=None,
                         warn_on_dtype=False, estimator='kmeans++',
                         force_all_finite=True)
-        x_squared_norms = check_array(x_squared_norms, dtype=FLOAT_DTYPES,
+        x_squared_norms = as_float_array(x_squared_norms, copy=False)
+        x_squared_norms = check_array(x_squared_norms, dtype=None,
                                       warn_on_dtype=False,
                                       estimator='kmeans++',
                                       force_all_finite=True)
 
     centers = np.empty((n_clusters, n_features), dtype=X.dtype)
+
+    if verbose:
+        print('[kmeans++] n_local_trials = %r' % (n_local_trials,))
+        print('[kmeans++] n_clusters = %r' % (n_clusters,))
+        print('[kmeans++] n_features = %r' % (n_features,))
+        print('[kmeans++] X.shape[0] = %r' % (X.shape[0],))
+
+    import utool as ut
+    _prog = ut.ProgIter(range(n_clusters), lbl='kmeans++', enabled=verbose,
+                        bs=1, freq=1, adjust=1)
+    _iter = iter(_prog)
+    from sklearn.externals.six import next
+    next(_iter)
+
+    # Precompute and prealloc loop variables
+    is_sparse = sp.issparse(X)
+    new_dist_sq = np.empty((1, X.shape[0]))
+    closest_dist_sq = np.empty((1, X.shape[0]), dtype=X.dtype)
+    distance_to_candidates = np.empty((n_local_trials, X.shape[0]), dtype=X.dtype)
+    centers = np.empty((n_clusters, n_features), dtype=X.dtype)
+    #n_local_trials = 2
 
     # Pick first center randomly
     center_id = random_state.randint(n_samples)
@@ -111,30 +145,38 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
     # Initialize list of closest distances and calculate current potential
     closest_dist_sq = euclidean_distances(
         centers[0, np.newaxis], X, Y_norm_squared=x_squared_norms,
-        squared=True, check_inputs=False)
+        squared=True, check_inputs=False, out=closest_dist_sq)
     current_pot = closest_dist_sq.sum()
 
     # Pick the remaining n_clusters-1 points
-    for c in range(1, n_clusters):
+    #for c in range(1, n_clusters):
+    for c in _iter:
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
         rand_vals = random_state.random_sample(n_local_trials) * current_pot
-        candidate_ids = np.searchsorted(closest_dist_sq.cumsum(), rand_vals)
+        cum_closest_dist_sq = closest_dist_sq.cumsum()
+        candidate_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
+
+        # TODO: can we only compare to a subset of these values?
+        # as a further approximation?
 
         # Compute distances to center candidates
+        X_cand = X[candidate_ids]
         distance_to_candidates = euclidean_distances(
-            X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True,
-            check_inputs=False,
-        )
+            X_cand, X, Y_norm_squared=x_squared_norms, squared=True,
+            check_inputs=False, out=distance_to_candidates)
 
-        # Decide which candidate is the best
+        #if c % 100 == 0:
+        #    import utool
+        #    utool.embed()
+
         best_candidate = None
         best_pot = None
         best_dist_sq = None
         for trial in range(n_local_trials):
             # Compute potential when including center candidate
-            new_dist_sq = np.minimum(closest_dist_sq,
-                                     distance_to_candidates[trial])
+            trial_dist = distance_to_candidates[trial]
+            new_dist_sq = np.minimum(closest_dist_sq, trial_dist, out=new_dist_sq)
             new_pot = new_dist_sq.sum()
 
             # Store result if it is the best local trial so far
@@ -144,12 +186,12 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
                 best_dist_sq = new_dist_sq
 
         # Permanently add best center candidate found in local tries
-        if sp.issparse(X):
+        if is_sparse:
             centers[c] = X[best_candidate].toarray()
         else:
             centers[c] = X[best_candidate]
         current_pot = best_pot
-        closest_dist_sq = best_dist_sq
+        closest_dist_sq[:] = best_dist_sq
 
     return centers
 
@@ -669,8 +711,8 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
         random subset of the data. This needs to be larger than k.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are finite and floats
-        if init is `kmeans++`.
+        Whether to check if inputs are are finite and floats if
+        init is `kmeans++`.
 
     Returns
     -------
@@ -1167,7 +1209,9 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
             ' mean batch inertia: %f, ewa inertia: %f ' % (
                 iteration_idx + 1, n_iter, batch_inertia,
                 ewa_inertia))
-        print(progress_msg)
+        #print(progress_msg)
+        import sys
+        sys.stdout.write('\r' + progress_msg)
 
     # Early stopping based on absolute tolerance on squared change of
     # centers position (using EWA smoothing)

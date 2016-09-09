@@ -771,6 +771,14 @@ def test_max_iter_error():
 
 
 def test_float_precision():
+    """
+    CommandLine:
+        python -m sklearn.cluster.tests.test_k_means test_float_precision
+
+    Example:
+        >>> from sklearn.cluster.tests.test_k_means import *  # NOQA
+        >>> result = test_float_precision()
+    """
     km = KMeans(n_init=1, random_state=30)
     mb_km = MiniBatchKMeans(n_init=1, random_state=30)
 
@@ -824,3 +832,15 @@ def test_KMeans_init_centers():
         km = KMeans(init=init_centers_test, n_clusters=3, n_init=1)
         km.fit(X_test)
         assert_equal(False, np.may_share_memory(km.cluster_centers_, init_centers))
+
+
+if __name__ == '__main__':
+    r"""
+    CommandLine:
+        python -m sklearn.cluster.tests.test_k_means
+        python -m sklearn.cluster.tests.test_k_means --allexamples
+    """
+    import multiprocessing
+    multiprocessing.freeze_support()  # for win32
+    import utool as ut  # NOQA
+    ut.doctest_funcs()
