@@ -54,7 +54,8 @@ def _return_float_dtype(X, Y):
     return X, Y, dtype
 
 
-def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
+def check_pairwise_arrays(X, Y, precomputed=False, dtype=None,
+                          force_all_finite=True):
     """ Set X and Y appropriately and checks inputs
 
     If Y is None, it is set as a pointer to X (i.e. not a copy).
@@ -84,6 +85,10 @@ def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
 
         .. versionadded:: 0.18
 
+    force_all_finite : boolean (default=True)
+        Whether to raise an error on np.inf and np.nan in X.
+
+
     Returns
     -------
     safe_X : {array-like, sparse matrix}, shape (n_samples_a, n_features)
@@ -103,12 +108,15 @@ def check_pairwise_arrays(X, Y, precomputed=False, dtype=None):
 
     if Y is X or Y is None:
         X = Y = check_array(X, accept_sparse='csr', dtype=dtype,
-                            warn_on_dtype=warn_on_dtype, estimator=estimator)
+                            warn_on_dtype=warn_on_dtype, estimator=estimator,
+                            force_all_finite=force_all_finite)
     else:
         X = check_array(X, accept_sparse='csr', dtype=dtype,
-                        warn_on_dtype=warn_on_dtype, estimator=estimator)
+                        warn_on_dtype=warn_on_dtype, estimator=estimator,
+                        force_all_finite=force_all_finite)
         Y = check_array(Y, accept_sparse='csr', dtype=dtype,
-                        warn_on_dtype=warn_on_dtype, estimator=estimator)
+                        warn_on_dtype=warn_on_dtype, estimator=estimator,
+                        force_all_finite=force_all_finite)
 
     if precomputed:
         if X.shape[1] != Y.shape[0]:
@@ -160,7 +168,7 @@ def check_paired_arrays(X, Y):
 
 # Pairwise distances
 def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
-                        X_norm_squared=None):
+                        X_norm_squared=None, force_all_finite=True):
     """
     Considering the rows of X (and Y=X) as vectors, compute the
     distance matrix between each pair of vectors.
@@ -198,6 +206,9 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
         Pre-computed dot-products of vectors in X (e.g.,
         ``(X**2).sum(axis=1)``)
 
+    force_all_finite : boolean (default=True)
+        Whether to raise an error on np.inf and np.nan in X.
+
     Returns
     -------
     distances : {array, sparse matrix}, shape (n_samples_1, n_samples_2)
@@ -219,7 +230,7 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
     --------
     paired_distances : distances betweens pairs of elements of X and Y.
     """
-    X, Y = check_pairwise_arrays(X, Y)
+    X, Y = check_pairwise_arrays(X, Y, force_all_finite=force_all_finite)
 
     if X_norm_squared is not None:
         XX = check_array(X_norm_squared)

@@ -40,7 +40,6 @@ from ._k_means_elkan import k_means_elkan
 ###############################################################################
 # Initialization heuristic
 
-
 def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
     """Init n_clusters seeds according to k-means++
 
@@ -98,7 +97,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
     # Initialize list of closest distances and calculate current potential
     closest_dist_sq = euclidean_distances(
         centers[0, np.newaxis], X, Y_norm_squared=x_squared_norms,
-        squared=True)
+        squared=True, force_all_finite=True)
     current_pot = closest_dist_sq.sum()
 
     # Pick the remaining n_clusters-1 points
@@ -110,7 +109,9 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
 
         # Compute distances to center candidates
         distance_to_candidates = euclidean_distances(
-            X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True)
+            X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True,
+            force_all_finite=False,
+        )
 
         # Decide which candidate is the best
         best_candidate = None
