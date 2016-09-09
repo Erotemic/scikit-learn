@@ -40,7 +40,9 @@ from ._k_means_elkan import k_means_elkan
 ###############################################################################
 # Initialization heuristic
 
-def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
+import utool as ut
+@ut.profile
+def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, verbose=True):
     """Init n_clusters seeds according to k-means++
 
     Parameters
@@ -87,6 +89,19 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
         # that it helped.
         n_local_trials = 2 + int(np.log(n_clusters))
 
+    if verbose:
+        print('[kmeans++] n_local_trials = %r' % (n_local_trials,))
+        print('[kmeans++] n_clusters = %r' % (n_clusters,))
+        print('[kmeans++] n_features = %r' % (n_features,))
+        print('[kmeans++] X.shape[0] = %r' % (X.shape[0],))
+
+    import utool as ut
+    _prog = ut.ProgIter(range(n_clusters), lbl='kmeans++', enabled=verbose,
+                        bs=0, freq=1, adjust=1)
+    _iter = iter(_prog)
+    from sklearn.externals.six import next
+    next(_iter)
+
     # Pick first center randomly
     center_id = random_state.randint(n_samples)
     if sp.issparse(X):
@@ -101,7 +116,8 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None):
     current_pot = closest_dist_sq.sum()
 
     # Pick the remaining n_clusters-1 points
-    for c in range(1, n_clusters):
+    #for c in range(1, n_clusters):
+    for c in _iter:
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
         rand_vals = random_state.random_sample(n_local_trials) * current_pot
