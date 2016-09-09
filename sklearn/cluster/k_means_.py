@@ -75,6 +75,10 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
 
     Version ported from http://www.stanford.edu/~darthur/kMeansppTest.zip,
     which is the implementation used in the aforementioned paper.
+
+
+    TODO: Scalable Kmeans ++
+    http://theory.stanford.edu/~sergei/papers/vldb12-kmpar.pdf
     """
     n_samples, n_features = X.shape
 
@@ -94,7 +98,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
 
     import utool as ut
     _prog = ut.ProgIter(range(n_clusters), lbl='kmeans++', enabled=verbose,
-                        bs=0, freq=1, adjust=1)
+                        bs=1, freq=1, adjust=1)
     _iter = iter(_prog)
     from sklearn.externals.six import next
     next(_iter)
@@ -136,15 +140,13 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
         candidate_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
 
         # TODO: can we only compare to a subset of these values?
+        # as a further approximation?
 
         # Compute distances to center candidates
         X_cand = X[candidate_ids]
         distance_to_candidates = euclidean_distances(
             X_cand, X, Y_norm_squared=x_squared_norms, squared=True,
             force_all_finite=False, out=distance_to_candidates)
-        #if c % 100 == 0:
-        #    import utool
-        #    utool.embed()
 
         best_candidate = None
         best_pot = None
