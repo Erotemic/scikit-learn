@@ -124,9 +124,18 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
     else:
         centers[0] = X[center_id]
 
+    # Evaluate only a random subset of the data
+    subset_size = len(X) // 10
+    data_ids = np.arange(len(X))
+    np.random.shuffle(data_ids)
+    subset_ids = data_ids[0:subset_size]
+
+    X_subset = subset_ids
+
+    X_cand = centers[0:1]
     # Initialize list of closest distances and calculate current potential
     closest_dist_sq = euclidean_distances(
-        centers[0, np.newaxis], X, Y_norm_squared=x_squared_norms,
+        X_cand, X, Y_norm_squared=x_squared_norms,
         squared=True, force_all_finite=False, out=closest_dist_sq)
     current_pot = closest_dist_sq.sum()
 
