@@ -111,8 +111,8 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
 
     # Precompute and prealloc loop variables
     is_sparse = sp.issparse(X)
-    new_dist_sq = np.empty((1, X.shape[0]))
-    closest_dist_sq = np.empty((1, X.shape[0]))
+    # new_dist_sq = np.empty((1, X.shape[0]))
+    # closest_dist_sq = np.empty((1, X.shape[0]))
     distance_to_candidates = np.empty((n_local_trials, X.shape[0]))
     centers = np.empty((n_clusters, n_features), dtype=X.dtype)
     #n_local_trials = 2
@@ -125,18 +125,19 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
         centers[0] = X[center_id]
 
     # Evaluate only a random subset of the data
-    subset_size = len(X) // 10
-    data_ids = np.arange(len(X))
-    np.random.shuffle(data_ids)
-    subset_ids = data_ids[0:subset_size]
-
-    X_subset = subset_ids
+    if False:
+        subset_size = len(X) // 10
+        data_ids = np.arange(len(X))
+        np.random.shuffle(data_ids)
+        subset_ids = data_ids[0:subset_size]
+        X_subset = subset_ids
+        X_subset
 
     X_cand = centers[0:1]
     # Initialize list of closest distances and calculate current potential
     closest_dist_sq = euclidean_distances(
         X_cand, X, Y_norm_squared=x_squared_norms,
-        squared=True, force_all_finite=False, out=closest_dist_sq)
+        squared=True, force_all_finite=False)  # , out=closest_dist_sq)
     current_pot = closest_dist_sq.sum()
 
     # Pick the remaining n_clusters-1 points
@@ -163,7 +164,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, v
         for trial in range(n_local_trials):
             # Compute potential when including center candidate
             trial_dist = distance_to_candidates[trial]
-            new_dist_sq = np.minimum(closest_dist_sq, trial_dist, out=new_dist_sq)
+            new_dist_sq = np.minimum(closest_dist_sq, trial_dist)  # , out=new_dist_sq)
             new_pot = new_dist_sq.sum()
 
             # Store result if it is the best local trial so far
