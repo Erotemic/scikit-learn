@@ -13,6 +13,7 @@
 
 import warnings
 
+import sys
 import numpy as np
 import scipy.sparse as sp
 
@@ -40,8 +41,8 @@ from ._k_means_elkan import k_means_elkan
 ###############################################################################
 # Initialization heuristic
 
-import utool as ut
-@ut.profile
+# import utool as ut
+# @ut.profile
 def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None, verbose=True):
     """Init n_clusters seeds according to k-means++
 
@@ -1103,9 +1104,9 @@ def _mini_batch_step(X, x_squared_norms, centers, counts,
             # Pick new clusters amongst observations with uniform probability
             new_centers = choice(X.shape[0], replace=False, size=n_reassigns,
                                  random_state=random_state)
-            if verbose:
-                print("[MiniBatchKMeans] Reassigning %i cluster centers."
-                      % n_reassigns)
+            # if verbose:
+            #     print("\n[MiniBatchKMeans] Reassigning %i cluster centers."
+            #           % n_reassigns)
 
             if sp.issparse(X) and not sp.issparse(centers):
                 assign_rows_csr(X,
@@ -1191,7 +1192,8 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
             ' mean batch inertia: %f, ewa inertia: %f ' % (
                 iteration_idx + 1, n_iter, batch_inertia,
                 ewa_inertia))
-        print(progress_msg)
+        # print(progress_msg)
+        sys.stdout.write('\r' + progress_msg)
 
     # Early stopping based on absolute tolerance on squared change of
     # centers position (using EWA smoothing)
@@ -1210,8 +1212,8 @@ def _mini_batch_convergence(model, iteration_idx, n_iter, tol,
     else:
         no_improvement += 1
 
-    if (model.max_no_improvement is not None
-            and no_improvement >= model.max_no_improvement):
+    if (model.max_no_improvement is not None and
+            no_improvement >= model.max_no_improvement):
         if verbose:
             print('Converged (lack of improvement in inertia)'
                   ' at iteration %d/%d'
@@ -1532,8 +1534,8 @@ class MiniBatchKMeans(KMeans):
         x_squared_norms = row_norms(X, squared=True)
         self.random_state_ = getattr(self, "random_state_",
                                      check_random_state(self.random_state))
-        if (not hasattr(self, 'counts_')
-                or not hasattr(self, 'cluster_centers_')):
+        if (not hasattr(self, 'counts_') or
+                not hasattr(self, 'cluster_centers_')):
             # this is the first call partial_fit on this object:
             # initialize the cluster centers
             self.cluster_centers_ = _init_centroids(
