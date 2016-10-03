@@ -231,11 +231,13 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
     if X_norm_squared is not None:
         if check_inputs:
             XX = check_array(X_norm_squared)
-        if XX.shape == (1, X.shape[0]):
-            XX = XX.T
-        elif XX.shape != (X.shape[0], 1):
-            raise ValueError(
-                "Incompatible dimensions for X and X_norm_squared")
+            if XX.shape == (1, X.shape[0]):
+                XX = XX.T
+            elif XX.shape != (X.shape[0], 1):
+                raise ValueError(
+                    "Incompatible dimensions for X and X_norm_squared")
+        else:
+            XX = X_norm_squared
     else:
         XX = row_norms(X, squared=True)[:, np.newaxis]
 

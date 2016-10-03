@@ -43,6 +43,28 @@ from ._k_means_elkan import k_means_elkan
 import utool as ut
 
 
+def k_means_plus_plus(X, n_clusters, random_state, n_local_trials=None,
+                      verbose=True):
+
+    X = check_array(X, accept_sparse="csr", order='C',
+                    dtype=[np.float64, np.float32])
+    n_samples, n_features = X.shape
+    if n_samples < n_clusters:
+        raise ValueError("Number of samples smaller than number "
+                         "of clusters.")
+
+    x_squared_norms = row_norms(X, squared=True)[np.newaxis, :]
+    try:
+        import sklearn.cluster.k_means_
+        centers = sklearn.cluster.k_means_._k_init(
+            X, n_clusters, x_squared_norms, random_state,
+            n_local_trials=n_local_trials, verbose=verbose)
+    except KeyboardInterrupt:
+        print('\n\n\n')
+        raise
+    return centers
+
+
 @ut.profile
 def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
             check_inputs=True, verbose=True):
@@ -102,22 +124,28 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     # Do type checks before the critical loop
     if check_inputs:
-        X = as_float_array(X, copy=False)
-        X = check_array(X, accept_sparse='csr', dtype=None,
+        X = check_array(X, accept_sparse='csr', dtype=[np.float64, np.float32],
                         warn_on_dtype=False, estimator='kmeans++',
                         force_all_finite=True)
-        x_squared_norms = as_float_array(x_squared_norms, copy=False)
-        x_squared_norms = check_array(x_squared_norms, dtype=None,
+        x_squared_norms = check_array(x_squared_norms,
+                                      dtype=[X.dtype],
                                       warn_on_dtype=False,
                                       estimator='kmeans++',
                                       force_all_finite=True)
 
     centers = np.empty((n_clusters, n_features), dtype=X.dtype)
 
+    # SAMPLE_APPROX = False
+    SAMPLE_APPROX = True
+    if SAMPLE_APPROX:
+        # Evaluate only a random subset of the data
+        subset_size = min(len(X), 1000)
+
     if verbose:
         print('[kmeans++] n_local_trials = %r' % (n_local_trials,))
         print('[kmeans++] n_clusters = %r' % (n_clusters,))
         print('[kmeans++] n_features = %r' % (n_features,))
+        print('[kmeans++] subset_size = %r' % (subset_size,))
         print('[kmeans++] X.shape[0] = %r' % (X.shape[0],))
 
     import utool as ut
@@ -125,7 +153,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
                         bs=1, freq=1, adjust=1)
     _iter = iter(_prog)
     from sklearn.externals.six import next
-    next(_iter)
+    center_index = next(_iter)
 
     # Precompute and prealloc loop variables
     is_sparse = sp.issparse(X)
@@ -133,51 +161,99 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
     closest_dist_sq = np.empty((1, X.shape[0]), dtype=X.dtype)
     distance_to_candidates = np.empty((n_local_trials, X.shape[0]), dtype=X.dtype)
     centers = np.empty((n_clusters, n_features), dtype=X.dtype)
-    #n_local_trials = 2
+
+    is_unused = np.ones(len(X), dtype=np.bool)
 
     # Pick first center randomly
-    center_id = random_state.randint(n_samples)
+    chosen_index = random_state.randint(n_samples)
     if sp.issparse(X):
-        centers[0] = X[center_id].toarray()
+        centers[center_index] = X[chosen_index].toarray()
     else:
-        centers[0] = X[center_id]
+        centers[center_index] = X[chosen_index]
+    is_unused[chosen_index] = False
 
-    # Initialize list of closest distances and calculate current potential
-    closest_dist_sq = euclidean_distances(
-        centers[0, np.newaxis], X, Y_norm_squared=x_squared_norms,
-        squared=True, check_inputs=False, out=closest_dist_sq)
-    current_pot = closest_dist_sq.sum()
+    SAMPLE_APPROX = False
+    # SAMPLE_APPROX = False
+    if SAMPLE_APPROX:
+        # Evaluate only a random subset of the data
+        data_ids = np.arange(len(X), dtype=np.int32)
+        # random_state.shuffle(data_ids)
+        # # Only data that hasn't been used yet is available
+        # avail_ids = data_ids.compress(is_unused.take(data_ids))
+        # subset_ids = avail_ids[0:subset_size]
+        avail_ids = data_ids.compress(is_unused)
+        subset_ids = random_state.choice(avail_ids, subset_size, replace=False)
+        # subset_ids = avail_ids
+
+    x_squared_norms = np.atleast_2d(x_squared_norms)
+
+    X_cand = centers[0:1]
+    x_cand_squared_norms = x_squared_norms.T[0:1]
+
+    # Initialize list of closest distances
+    if SAMPLE_APPROX:
+        closest_dist_sq[:, subset_ids] = euclidean_distances(
+            X_cand, X[subset_ids], X_norm_squared=x_cand_squared_norms,
+            Y_norm_squared=x_squared_norms[:, subset_ids],
+            squared=True, check_inputs=False)
+    else:
+        closest_dist_sq = euclidean_distances(
+            X_cand, X,
+            X_norm_squared=x_cand_squared_norms,
+            Y_norm_squared=x_squared_norms,
+            squared=True, check_inputs=False, out=closest_dist_sq)
 
     # Pick the remaining n_clusters-1 points
-    #for c in range(1, n_clusters):
-    for c in _iter:
+    for center_index in _iter:
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
-        rand_vals = random_state.random_sample(n_local_trials) * current_pot
-        cum_closest_dist_sq = closest_dist_sq.cumsum()
-        candidate_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
+        if SAMPLE_APPROX:
+            cum_closest_dist_sq = closest_dist_sq[:, subset_ids].cumsum()
+            pot_approx = cum_closest_dist_sq[-1]
+            rand_vals = random_state.random_sample(n_local_trials) * pot_approx
+            sample_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
+            candidate_ids = subset_ids[sample_ids]
+        else:
+            cum_closest_dist_sq = closest_dist_sq.cumsum()
+            current_pot = cum_closest_dist_sq[-1]
+            rand_vals = random_state.random_sample(n_local_trials) * current_pot
+            candidate_ids = np.searchsorted(cum_closest_dist_sq, rand_vals)
+            # while np.any(~is_unused[candidate_ids]):
 
-        # TODO: can we only compare to a subset of these values?
-        # as a further approximation?
 
         # Compute distances to center candidates
         X_cand = X[candidate_ids]
-        distance_to_candidates = euclidean_distances(
-            X_cand, X, Y_norm_squared=x_squared_norms, squared=True,
-            check_inputs=False, out=distance_to_candidates)
+        x_cand_squared_norms = x_squared_norms.T[candidate_ids]
 
-        #if c % 100 == 0:
-        #    import utool
-        #    utool.embed()
+        if SAMPLE_APPROX:
+            X_subset = X.take(subset_ids, axis=0)
+            x_subset_squared_norms = x_squared_norms[:, subset_ids]
+
+            distance_to_candidates[:, subset_ids] = euclidean_distances(
+                X_cand, X_subset,
+                X_norm_squared=x_cand_squared_norms,
+                Y_norm_squared=x_subset_squared_norms,
+                squared=True, check_inputs=False)
+        else:
+            distance_to_candidates = euclidean_distances(
+                X_cand, X,
+                X_norm_squared=x_cand_squared_norms,
+                Y_norm_squared=x_squared_norms,
+                squared=True, check_inputs=False, out=distance_to_candidates)
 
         best_candidate = None
         best_pot = None
         best_dist_sq = None
         for trial in range(n_local_trials):
             # Compute potential when including center candidate
-            trial_dist = distance_to_candidates[trial]
-            new_dist_sq = np.minimum(closest_dist_sq, trial_dist, out=new_dist_sq)
-            new_pot = new_dist_sq.sum()
+            if SAMPLE_APPROX:
+                trial_dist = distance_to_candidates[trial, subset_ids]
+                new_dist_sq = np.minimum(closest_dist_sq[:, subset_ids], trial_dist)
+                new_pot = new_dist_sq.sum()
+            else:
+                trial_dist = distance_to_candidates[trial]
+                new_dist_sq = np.minimum(closest_dist_sq, trial_dist, out=new_dist_sq)
+                new_pot = new_dist_sq.sum()
 
             # Store result if it is the best local trial so far
             if (best_candidate is None) or (new_pot < best_pot):
@@ -185,13 +261,26 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
                 best_pot = new_pot
                 best_dist_sq = new_dist_sq
 
+        chosen_index = best_candidate
         # Permanently add best center candidate found in local tries
         if is_sparse:
-            centers[c] = X[best_candidate].toarray()
+            centers[center_index] = X[chosen_index].toarray()
         else:
-            centers[c] = X[best_candidate]
-        current_pot = best_pot
-        closest_dist_sq[:] = best_dist_sq
+            centers[center_index] = X[chosen_index]
+        is_unused[chosen_index] = False
+
+        if SAMPLE_APPROX:
+            closest_dist_sq[:, subset_ids] = best_dist_sq
+            # Choose a new random sample of unused data
+            avail_ids = data_ids.compress(is_unused)
+            subset_ids = random_state.choice(avail_ids, subset_size, replace=False)
+            # subset_ids = avail_ids
+        else:
+            closest_dist_sq[:] = best_dist_sq
+        # if center_index > 10:
+        #     break
+    if verbose:
+        pass
 
     return centers
 
