@@ -784,7 +784,8 @@ def test_pairwise_no_check_inputs_with_good_input():
         if metric in PAIRWISE_DISTANCE_FUNCTIONS:
             # Check the pairwise_distances implementation
             # gives the same value
-            distances = PAIRWISE_DISTANCE_FUNCTIONS[metric](X, Y, check_inputs=False)
+            distances = PAIRWISE_DISTANCE_FUNCTIONS[metric](X, Y,
+                                                            check_inputs=False)
             distances = np.diag(distances)
             assert_array_almost_equal(distances, S2)
 
@@ -798,9 +799,11 @@ def test_pairwise_no_check_inputs_with_bad_input():
     Y = rng.random_sample((6, 4)).tolist()
     for metric, func in iteritems(PAIRED_DISTANCES):
         assert_raises((ValueError, TypeError), func, X, Y, check_inputs=False)
-        assert_raises(ValueError, func, csr_matrix(X), csr_matrix(Y), check_inputs=False)
+        assert_raises(ValueError, func, csr_matrix(X), csr_matrix(Y),
+                      check_inputs=False)
         if metric in PAIRWISE_DISTANCE_FUNCTIONS:
             # Check the pairwise_distances implementation
             # many different types of errors can happen here
             assert_raises((ValueError, AttributeError),
-                          PAIRWISE_DISTANCE_FUNCTIONS[metric], X, Y, check_inputs=False)
+                          PAIRWISE_DISTANCE_FUNCTIONS[metric], X, Y,
+                          check_inputs=False)
