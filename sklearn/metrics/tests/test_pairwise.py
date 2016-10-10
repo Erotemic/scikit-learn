@@ -688,7 +688,8 @@ def test_euclidean_no_check_inputs_with_bad_input():
     # Ensure failure when check_inputs is False and the inputs are bad
     X = [[0]]
     Y = [[1], [2]]
-    assert_raises(AttributeError, euclidean_distances, X, Y, check_inputs=False)
+    assert_raises(AttributeError, euclidean_distances, X, Y,
+                  check_inputs=False)
 
     # Unsigned integer types might work if squared is False
     # and numpy casting rule is not 'same_kind'
