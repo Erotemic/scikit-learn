@@ -123,8 +123,9 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         squared=True, check_inputs=False)
     current_pot = closest_dist_sq.sum()
 
-    # minimum float32 value
-    min_float = -3.4028235e38
+    # minimum positive float32 value
+    # eps = np.finfo(np.float32).tiny
+    eps = 1.1754944e-38
 
     # Pick the remaining n_clusters-1 points
     for c in range(1, n_clusters):
@@ -136,8 +137,8 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         rand_vals = random_state.random_sample(n_local_trials)
         # Add a small number to sample from the open interval (0, 1).
         # This prevents sampling previously sampled points.
-        rand_vals *= (1.0 - min_float)
-        rand_vals += min_float
+        rand_vals *= (1.0 - eps)
+        rand_vals += eps
         # Scale by the largest squared distance to a candidate
         rand_vals *= current_pot
         candidate_ids = np.searchsorted(cumdist_sq, rand_vals)
