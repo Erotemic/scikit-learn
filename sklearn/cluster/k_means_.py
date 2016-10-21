@@ -16,29 +16,29 @@ import warnings
 import numpy as np
 import scipy.sparse as sp
 
-from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
-from sklearn.metrics.pairwise import euclidean_distances
+from ..base import BaseEstimator, ClusterMixin, TransformerMixin
+from ..metrics.pairwise import euclidean_distances
 from sklearn.metrics.pairwise import pairwise_distances_argmin_min
-from sklearn.utils.extmath import row_norms, squared_norm
-from sklearn.utils.sparsefuncs_fast import assign_rows_csr
-from sklearn.utils.sparsefuncs import mean_variance_axis
-from sklearn.utils.fixes import astype
-from sklearn.utils import check_array
-from sklearn.utils import check_random_state
-from sklearn.utils import as_float_array
-from sklearn.utils import gen_batches
-from sklearn.utils.validation import check_is_fitted
-from sklearn.utils.validation import FLOAT_DTYPES
-from sklearn.utils.random import choice
-from sklearn.externals.joblib import Parallel
-from sklearn.externals.joblib import delayed
-from sklearn.externals.six import string_types
-from sklearn.externals.six import next
-from sklearn.externals.six.moves import range
-from sklearn.externals.progiter import ProgIter
+from ..utils.extmath import row_norms, squared_norm, stable_cumsum
+from ..utils.sparsefuncs_fast import assign_rows_csr
+from ..utils.sparsefuncs import mean_variance_axis
+from ..utils.fixes import astype
+from ..utils import check_array
+from ..utils import check_random_state
+from ..utils import as_float_array
+from ..utils import gen_batches
+from ..utils.validation import check_is_fitted
+from ..utils.validation import FLOAT_DTYPES
+from ..utils.random import choice
+from ..externals.joblib import Parallel
+from ..externals.joblib import delayed
+from ..externals.six import string_types
+from ..externals.six import next
+from ..externals.six.moves import range
+from ...externals.progiter import ProgIter
 
-from sklearn.cluster import _k_means
-from sklearn.cluster._k_means_elkan import k_means_elkan
+from . import _k_means
+from ._k_means_elkan import k_means_elkan
 
 
 ###############################################################################
@@ -167,6 +167,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
     for c in _iter:
         # Choose center candidates by sampling with probability proportional
         # to the squared distance to the closest existing center
+<<<<<<< HEAD
         cumdist_sq = closest_dist_sq.cumsum()
         current_pot = cumdist_sq[-1]
         # Ensure that the new candidates have not been selected before
@@ -179,6 +180,11 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         # Scale by the largest squared distance to a candidate
         rand_vals *= current_pot
         candidate_ids = np.searchsorted(cumdist_sq, rand_vals)
+=======
+        rand_vals = random_state.random_sample(n_local_trials) * current_pot
+        candidate_ids = np.searchsorted(stable_cumsum(closest_dist_sq),
+                                        rand_vals)
+>>>>>>> missing_values_rf
 
         # Compute distances to center candidates
         X_cand = X[candidate_ids]
