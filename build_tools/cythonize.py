@@ -187,7 +187,8 @@ def check_and_cythonize(root_dir):
 
 
 def main(root_dir=DEFAULT_ROOT):
-    os.remove(HASH_FILE)
+    if os.path.exists(HASH_FILE):
+        os.remove(HASH_FILE)
     check_and_cythonize(root_dir)
 
 
