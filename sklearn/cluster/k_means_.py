@@ -74,7 +74,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
         on the number of seeds (2+log(k)); this is the default.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are are finite and floats.
+        Whether to check if inputs are finite and floats.
 
     verbose : boolean, optional
         Verbosity mode.
@@ -106,7 +106,7 @@ def _k_init(X, n_clusters, x_squared_norms, random_state, n_local_trials=None,
 
     # Do type checks before the critical loop
     if check_inputs:
-        X = check_array(X, accept_sparse='csr', dtype=[np.float64, np.float32],
+        X = check_array(X, accept_sparse='csr', dtype=FLOAT_DTYPES,
                         warn_on_dtype=False, estimator='kmeans++',
                         force_all_finite=True)
         x_squared_norms = check_array(np.atleast_2d(x_squared_norms),
@@ -636,7 +636,7 @@ def _labels_inertia_precompute_dense(X, x_squared_norms, centers, distances):
     """
     n_samples = X.shape[0]
     # Breakup nearest neighbor distance computation into batches to prevent
-    # memory blowup
+    # memory blowup in the case of a large number of samples and clusters.
     metric_kwargs = dict(squared=True, check_inputs=False)
     labels, mindist = pairwise_distances_argmin_min(
         X=X, Y=centers, metric='euclidean', metric_kwargs=metric_kwargs)
@@ -738,8 +738,8 @@ def _init_centroids(X, k, init, random_state=None, x_squared_norms=None,
         random subset of the data. This needs to be larger than k.
 
     check_inputs : boolean (default=True)
-        Whether to check if inputs are are finite and floats if
-        init is `kmeans++`.
+        Whether to check if inputs are finite and floats
+        if init is `kmeans++`.
 
     verbose : int, default 0
         Verbosity mode.
