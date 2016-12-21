@@ -493,6 +493,13 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
     >>> matthews_corrcoef(y_true, y_pred)  # doctest: +ELLIPSIS
     -0.33...
 
+    >>> from sklearn.metrics.classification import *  # NOQA
+    >>> from sklearn.metrics.classification import _check_targets
+    >>> rng = np.random.RandomState(0)
+    >>> y_true = ["a" if i == 0 else "b" for i in rng.randint(0, 2, size=20)]
+    >>> y_pred = ["a" if i == 0 else "b" for i in rng.randint(0, 2, size=20)]
+    >>> sample_weight = None
+
     """
     y_type, y_true, y_pred = _check_targets(y_true, y_pred)
     lb = LabelEncoder()
@@ -501,19 +508,30 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
     y_pred = lb.transform(y_pred)
 
     if y_type == "multiclass":
-        C = confusion_matrix(y_pred, y_true, sample_weight=sample_weight)
-        N = len(C)
-        cov_ytyp = ((np.diag(C)[:, np.newaxis, np.newaxis] * C).sum() -
-                    (C[np.newaxis, :, :] * C[:, :, np.newaxis]).sum())
-        cov_ytyt = np.sum([
-            (C[:, k].sum() * (C[:, :k].sum() + C[:, k + 1:].sum()))
-            for k in range(N)
-        ])
-        cov_ypyp = np.sum([
-            (C[k, :].sum() * (C[:k, :].sum() + C[k + 1:, :].sum()))
-            for k in range(N)
-        ])
-        mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
+        import utool
+        for timer in utool.Timerit(10):
+                with timer:
+                    C = confusion_matrix(y_pred, y_true, sample_weight=sample_weight)
+                    N = len(C)
+                    cov_ytyp = ((np.diag(C)[:, np.newaxis, np.newaxis] * C).sum() -
+                                (C[np.newaxis, :, :] * C[:, :, np.newaxis]).sum())
+                    cov_ytyt = np.sum([
+                        (C[:, k].sum() * (C[:, :k].sum() + C[:, k + 1:].sum()))
+                        for k in range(N)
+                    ])
+                    cov_ypyp = np.sum([
+                        (C[k, :].sum() * (C[:k, :].sum() + C[k + 1:, :].sum()))
+                        for k in range(N)
+                    ])
+                    mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
+                    # print('mcc = %r' % (mcc,))
+
+        import utool
+        for timer in utool.Timerit(10):
+                with timer:
+                    cov_ytyt, cov_ytyp, _, cov_ypyp = np.cov(y_pred, y_true, bias=True).ravel()
+                    mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
+        print('mcc = %r' % (mcc,))
     elif y_type == "binary":
         mean_yt = np.average(y_true, weights=sample_weight)
         mean_yp = np.average(y_pred, weights=sample_weight)
