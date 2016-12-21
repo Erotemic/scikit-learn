@@ -521,7 +521,8 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
         y_true_u_cent = y_true - mean_yt
         y_pred_u_cent = y_pred - mean_yp
 
-        cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent, weights=sample_weight)
+        cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent,
+                              weights=sample_weight)
         var_yt = np.average(y_true_u_cent ** 2, weights=sample_weight)
         var_yp = np.average(y_pred_u_cent ** 2, weights=sample_weight)
 
@@ -533,7 +534,6 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
         return 0.
     else:
         return mcc
-
 
 
 def zero_one_loss(y_true, y_pred, normalize=True, sample_weight=None):
