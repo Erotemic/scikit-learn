@@ -496,9 +496,9 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
     >>> from sklearn.metrics.classification import *  # NOQA
     >>> from sklearn.metrics.classification import _check_targets
     >>> rng = np.random.RandomState(0)
-    >>> y_true = ["a" if i == 0 else "b" for i in rng.randint(0, 2, size=20)]
-    >>> y_pred = ["a" if i == 0 else "b" for i in rng.randint(0, 2, size=20)]
-    >>> sample_weight = None
+    >>> y_true = ["a" if i == 0 else "b" for i in rng.randint(0, 4, size=20)]
+    >>> y_pred = ["a" if i == 0 else "b" for i in rng.randint(0, 4, size=20)]
+    >>> sample_weight = rng.randint(1, 100, size=20)
 
     """
     y_type, y_true, y_pred = _check_targets(y_true, y_pred)
@@ -524,27 +524,30 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
                         for k in range(N)
                     ])
                     mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
-                    # print('mcc = %r' % (mcc,))
+        print('mcc = %r' % (mcc,))
 
         import utool
         for timer in utool.Timerit(10):
                 with timer:
-                    cov_ytyt, cov_ytyp, _, cov_ypyp = np.cov(y_pred, y_true, bias=True).ravel()
+                    cov_ytyt, cov_ytyp, _, cov_ypyp = np.cov(y_pred, y_true, bias=True, fweights=sample_weight).ravel()
                     mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
         print('mcc = %r' % (mcc,))
     elif y_type == "binary":
-        mean_yt = np.average(y_true, weights=sample_weight)
-        mean_yp = np.average(y_pred, weights=sample_weight)
+        import utool
+        for timer in utool.Timerit(10):
+                with timer:
+                    mean_yt = np.average(y_true, weights=sample_weight)
+                    mean_yp = np.average(y_pred, weights=sample_weight)
 
-        y_true_u_cent = y_true - mean_yt
-        y_pred_u_cent = y_pred - mean_yp
+                    y_true_u_cent = y_true - mean_yt
+                    y_pred_u_cent = y_pred - mean_yp
 
-        cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent,
-                              weights=sample_weight)
-        var_yt = np.average(y_true_u_cent ** 2, weights=sample_weight)
-        var_yp = np.average(y_pred_u_cent ** 2, weights=sample_weight)
+                    cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent,
+                                          weights=sample_weight)
+                    var_yt = np.average(y_true_u_cent ** 2, weights=sample_weight)
+                    var_yp = np.average(y_pred_u_cent ** 2, weights=sample_weight)
 
-        mcc = cov_ytyp / np.sqrt(var_yt * var_yp)
+                    mcc = cov_ytyp / np.sqrt(var_yt * var_yp)
     else:
         raise ValueError("%s is not supported" % y_type)
 
