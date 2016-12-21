@@ -495,30 +495,45 @@ def matthews_corrcoef(y_true, y_pred, sample_weight=None):
 
     """
     y_type, y_true, y_pred = _check_targets(y_true, y_pred)
-
-    if y_type != "binary":
-        raise ValueError("%s is not supported" % y_type)
-
     lb = LabelEncoder()
     lb.fit(np.hstack([y_true, y_pred]))
     y_true = lb.transform(y_true)
     y_pred = lb.transform(y_pred)
-    mean_yt = np.average(y_true, weights=sample_weight)
-    mean_yp = np.average(y_pred, weights=sample_weight)
 
-    y_true_u_cent = y_true - mean_yt
-    y_pred_u_cent = y_pred - mean_yp
+    if y_type == "multiclass":
+        C = confusion_matrix(y_pred, y_true, sample_weight=sample_weight)
+        N = len(C)
+        cov_ytyp = ((np.diag(C)[:, np.newaxis, np.newaxis] * C).sum() -
+                    (C[np.newaxis, :, :] * C[:, :, np.newaxis]).sum())
+        cov_ytyt = np.sum([
+            (C[:, k].sum() * (C[:, :k].sum() + C[:, k + 1:].sum()))
+            for k in range(N)
+        ])
+        cov_ypyp = np.sum([
+            (C[k, :].sum() * (C[:k, :].sum() + C[k + 1:, :].sum()))
+            for k in range(N)
+        ])
+        mcc = cov_ytyp / np.sqrt(cov_ytyt * cov_ypyp)
+    elif y_type == "binary":
+        mean_yt = np.average(y_true, weights=sample_weight)
+        mean_yp = np.average(y_pred, weights=sample_weight)
 
-    cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent, weights=sample_weight)
-    var_yt = np.average(y_true_u_cent ** 2, weights=sample_weight)
-    var_yp = np.average(y_pred_u_cent ** 2, weights=sample_weight)
+        y_true_u_cent = y_true - mean_yt
+        y_pred_u_cent = y_pred - mean_yp
 
-    mcc = cov_ytyp / np.sqrt(var_yt * var_yp)
+        cov_ytyp = np.average(y_true_u_cent * y_pred_u_cent, weights=sample_weight)
+        var_yt = np.average(y_true_u_cent ** 2, weights=sample_weight)
+        var_yp = np.average(y_pred_u_cent ** 2, weights=sample_weight)
+
+        mcc = cov_ytyp / np.sqrt(var_yt * var_yp)
+    else:
+        raise ValueError("%s is not supported" % y_type)
 
     if np.isnan(mcc):
         return 0.
     else:
         return mcc
+
 
 
 def zero_one_loss(y_true, y_pred, normalize=True, sample_weight=None):
