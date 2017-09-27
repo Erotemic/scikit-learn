@@ -266,17 +266,25 @@ def confusion_matrix(y_true, y_pred, labels=None, sample_weight=None):
     check_consistent_length(sample_weight, y_true, y_pred)
 
     n_labels = labels.size
-    label_to_ind = dict((y, x) for x, y in enumerate(labels))
-    # convert yt, yp into index
-    y_pred = np.array([label_to_ind.get(x, n_labels + 1) for x in y_pred])
-    y_true = np.array([label_to_ind.get(x, n_labels + 1) for x in y_true])
+    # If labels are not consecitive integers starting from zero, then
+    # yt, yp must be converted into index form
+    need_index_conversion = not (
+        labels.dtype.kind in {'i', 'u', 'b'} and
+        labels.min() == 0 and labels.max() == n_labels - 1 and
+        y_true.min() >= 0 and y_pred.min() >= 0
+    )
+    if need_index_conversion:
+        label_to_ind = dict((y, x) for x, y in enumerate(labels))
+        y_pred = np.array([label_to_ind.get(x, n_labels + 1) for x in y_pred])
+        y_true = np.array([label_to_ind.get(x, n_labels + 1) for x in y_true])
 
-    # intersect y_pred, y_true with labels, eliminate items not in labels
-    ind = np.logical_and(y_pred < n_labels, y_true < n_labels)
-    y_pred = y_pred[ind]
-    y_true = y_true[ind]
-    # also eliminate weights of eliminated items
-    sample_weight = sample_weight[ind]
+    # eliminate items in y_true, y_pred not in labels
+    isvalid = np.logical_and(y_pred < n_labels, y_true < n_labels)
+    if not np.all(isvalid):
+        y_pred = y_pred[isvalid]
+        y_true = y_true[isvalid]
+        # also eliminate weights of eliminated items
+        sample_weight = sample_weight[isvalid]
 
     # Choose the accumulator dtype to always have high precision
     if sample_weight.dtype.kind in {'i', 'u', 'b'}:
