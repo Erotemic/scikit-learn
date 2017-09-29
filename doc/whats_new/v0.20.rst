@@ -66,7 +66,7 @@ Model evaluation and meta-estimators
   :issue:`9521` by :user:`Hanmin Qin <qinhanmin2014>`.
 
 - Improved speed of :func:`metrics.confusion_matrix` when labels are integral.
-  by :user:`Jon Crall <Erotemic>`.
+  :issue:`9843` by :user:`Jon Crall <Erotemic>`.
 
 Linear, kernelized and related models
 
