@@ -270,7 +270,7 @@ def confusion_matrix(y_true, y_pred, labels=None, sample_weight=None):
     # yt, yp must be converted into index form
     need_index_conversion = not (
         labels.dtype.kind in {'i', 'u', 'b'} and
-        np.all(labels == np.arange(n_labels, dtype=labels.dtype)) and
+        np.all(labels == np.arange(n_labels)) and
         y_true.min() >= 0 and y_pred.min() >= 0
     )
     if need_index_conversion:
